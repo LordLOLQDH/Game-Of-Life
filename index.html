@@ -1,0 +1,17 @@
+<canvas id="c" width="800" height="600"></canvas>
+<script>
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+const s=10, cols=c.width/s, rows=c.height/s;
+let g = Array(rows).fill().map(()=>Array(cols).fill().map(()=>Math.random()>0.7));
+
+function draw(){
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,c.width,c.height);
+  let n = g.map((r,y)=>r.map((v,x)=>{
+    let cnt=0; for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++)
+      if(dx||dy) cnt+=(g[y+dy]?.[x+dx]||0); return cnt;
+  }));
+  g = g.map((r,y)=>r.map((v,x)=>n[y][x]==3||v&&n[y][x]==2?1:0));
+  g.forEach((r,y)=>r.forEach((v,x)=>{if(v){ctx.fillStyle='#0f8';ctx.fillRect(x*s,y*s,s-1,s-1)}}));
+}
+setInterval(draw,100);
+</script>
