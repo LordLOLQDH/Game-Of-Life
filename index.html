@@ -1,172 +1,190 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Game of Life</title>
 <style>
-  body {
-    background:#111; color:#0f8; font-family:-apple-system,monospace;
-    margin:0; text-align:center; touch-action:none; overscroll-behavior:none;
-  }
-  canvas {
-    border:1px solid #0f8; margin-top:5px;
-    width:98vw; height:60vh; image-rendering:pixelated;
-  }
-  button,select {
-    background:#222; color:#0f8; border:1px solid #0f8;
-    margin:3px; padding:8px 12px; font-size:16px; border-radius:6px;
-  }
-  button:active { background:#0f8; color:#111; }
-  #ui { margin:8px; display:flex; flex-wrap:wrap; justify-content:center; gap:4px; }
-  #stats { width:100%; margin-top:4px; font-size:14px; }
+    * { -webkit-tap-highlight-color: transparent; }
+  body { background:#000; color:#0f0; font-family:system-ui,monospace; margin:0; padding:8px; }
+  canvas { border:1px solid #0f0; width:100%; max-width:500px; display:block; margin:8px auto; }
+ .btn { background:#111; color:#0f0; border:1px solid #0f0; padding:12px 8px; margin:2px; font-size:15px; border-radius:4px; }
+ .btn:active { background:#0f0; color:#000; }
+  #ui { display:flex; flex-wrap:wrap; justify-content:center; }
+  #stats { text-align:center; margin:8px; font-size:14px; }
 </style>
 </head>
 <body>
 <div id="ui">
-  <button id="play">Start</button>
-  <button id="step">Step</button>
-  <button id="clear">Clear</button>
-  <button id="random">Random</button>
-  <button id="pandemic">Pandemie 💀</button>
-  <select id="presets">
-    <option value="">Struktur...</option>
-    <option value="glider">Glider</option>
-    <option value="gun">Glider Gun</option>
-    <option value="pulsar">Pulsar</option>
-    <option value="r">R-Pentomino</option>
-    <option value="lwss">Spaceship</option>
-  </select>
-  <div id="stats">Gen: 0 | Lebend: 0</div>
+  <button class="btn" id="btnPlay">Start</button>
+  <button class="btn" id="btnStep">Step</button>
+  <button class="btn" id="btnClear">Clear</button>
+  <button class="btn" id="btnRandom">Random</button>
+  <button class="btn" id="btnPandemic">Pandemie</button>
+  <button class="btn" id="btnGlider">Glider</button>
+  <button class="btn" id="btnGun">Gun</button>
 </div>
-<canvas id="c"></canvas>
+<div id="stats">Gen: 0 | Lebend: 0</div>
+<canvas id="c" width="400" height="400"></canvas>
 
 <script>
-const c = document.getElementById('c'), ctx = c.getContext('2d');
-let CELL = 6, cols, rows, g, running = false, gen = 0;
+(function() {
+  // iOS 26 braucht expliziten strict mode + IIFE wrapper
+  'use strict';
 
-// Canvas an Bildschirm anpassen - wichtig für Safari
-function resize() {
-  const ratio = window.devicePixelRatio || 1;
-  c.width = c.clientWidth * ratio;
-  c.height = c.clientHeight * ratio;
-  ctx.scale(ratio, ratio);
-  CELL = c.clientWidth < 500? 5 : 8; // Handy = kleinere Zellen
-  cols = Math.floor(c.clientWidth/CELL);
-  rows = Math.floor(c.clientHeight/CELL);
-  resetGrid(false);
-}
-window.addEventListener('resize', resize);
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var CELL = 10;
+  var cols = 40, rows = 40;
+  var grid = [];
+  var running = false;
+  var gen = 0;
+  var lastTime = 0;
 
-const PRESETS = {
-  glider: [[1,0],[2,1],[0,2],[1,2],[2,2]],
-  lwss: [[1,0],[4,0],[0,1],[0,2],[4,2],[0,3],[1,3],[2,3],[3,3]],
-  r: [[1,0],[2,0],[0,1],[1,2]],
-  pulsar: [[2,0],[3,0],[4,0],[8,0],[9,0],[10,0],[0,2],[5,2],[7,2],[12,2],[0,3],[5,3],[7,3],[12,3],[0,4],[5,4],[7,4],[12,4],[2,5],[3,5],[4,5],[8,5],[9,5],[10,5],[2,7],[3,7],[4,7],[8,7],[9,7],[10,7],[0,8],[5,8],[7,8],[12,8],[0,9],[5,9],[7,9],[12,9],[0,10],[5,10],[7,10],[12,10],[2,12],[3,12],[4,12],[8,12],[9,12],[10,12]],
-  gun: [[1,5],[1,6],[2,5],[2,6],[11,5],[11,6],[11,7],[12,4],[12,8],[13,3],[13,9],[14,3],[14,9],[15,6],[16,4],[16,8],[17,5],[17,6],[17,7],[18,6],[21,3],[21,4],[21,5],[22,3],[22,4],[22,5],[23,2],[23,6],[25,1],[25,2],[25,6],[25,7],[35,3],[35,4],[36,3],[36,4]]
-};
-
-function resetGrid(clearGen = true) {
-  g = Array(rows).fill().map(()=>Array(cols).fill(0));
-  if(clearGen) gen = 0;
-  updateStats();
-}
-
-function placePreset(name) {
-  const p = PRESETS[name]; if(!p) return;
-  const maxX = Math.max(...p.map(pt=>pt[0])), maxY = Math.max(...p.map(pt=>pt[1]));
-  // Auto-Zoom für große Strukturen + Handy
-  if(maxX > cols-10 || maxY > rows-10) CELL = Math.max(3, Math.floor(c.clientWidth/Math.max(maxX,maxY)/1.5));
-  cols = Math.floor(c.clientWidth/CELL); rows = Math.floor(c.clientHeight/CELL);
-  resetGrid();
-
-  const ox = Math.floor(cols/2 - maxX/2), oy = Math.floor(rows/2 - maxY/2);
-  p.forEach(([x,y]) => { if(g[oy+y]?.[ox+x]!==undefined) g[oy+y][ox+x]=1; });
-  draw();
-}
-
-function neighbors(x,y){
-  let cnt=0;
-  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
-    if(!dx&&!dy) continue;
-    cnt += g[y+dy]?.[x+dx]||0;
+  function initGrid() {
+    grid = new Array(rows);
+    for(var y=0; y<rows; y++) {
+      grid[y] = new Array(cols);
+      for(var x=0; x<cols; x++) {
+        grid[y][x] = 0;
+      }
+    }
+    gen = 0;
   }
-  return cnt;
-}
 
-function step(){
-  let next = g.map((r,y)=>r.map((v,x)=>{
-    const n = neighbors(x,y);
-    return n==3||v&&n==2? 1:0;
-  }));
-  g = next; gen++; updateStats();
-}
+  function getNeighbors(x,y) {
+    var count = 0;
+    for(var dy=-1; dy<=1; dy++) {
+      for(var dx=-1; dx<=1; dx++) {
+        if(dx===0 && dy===0) continue;
+        var nx = x+dx, ny = y+dy;
+        if(nx>=0 && nx<cols && ny>=0 && ny<rows) {
+          count += grid[ny][nx];
+        }
+      }
+    }
+    return count;
+  }
 
-function pandemic() {
-  g = g.map(r=>r.map(v=> v && Math.random()<0.35? 0 : v));
-  updateStats(); draw();
-}
+  function step() {
+    var next = new Array(rows);
+    for(var y=0; y<rows; y++) {
+      next[y] = new Array(cols);
+      for(var x=0; x<cols; x++) {
+        var n = getNeighbors(x,y);
+        next[y][x] = (n===3 || (grid[y][x]===1 && n===2))? 1 : 0;
+      }
+    }
+    grid = next;
+    gen++;
+  }
 
-function countAlive() {
-  return g.reduce((sum,row)=>sum+row.reduce((s,v)=>s+v,0),0);
-}
+  function draw() {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#00ff00';
+    for(var y=0; y<rows; y++) {
+      for(var x=0; x<cols; x++) {
+        if(grid[y][x]===1) {
+          ctx.fillRect(x*CELL, y*CELL, CELL-1, CELL-1);
+        }
+      }
+    }
+    document.getElementById('stats').textContent = 'Gen: ' + gen + ' | Lebend: ' + countAlive();
+  }
 
-function updateStats() {
-  document.getElementById('stats').textContent = `Gen: ${gen} | Lebend: ${countAlive()}`;
-}
+  function countAlive() {
+    var sum = 0;
+    for(var y=0; y<rows; y++) {
+      for(var x=0; x<cols; x++) sum += grid[y][x];
+    }
+    return sum;
+  }
 
-function draw(){
-  ctx.fillStyle='#111'; ctx.fillRect(0,0,c.clientWidth,c.clientHeight);
-  ctx.fillStyle='#0f8';
-  for(let y=0;y<rows;y++){
-    for(let x=0;x<cols;x++){
-      if(g[y][x]) ctx.fillRect(x*CELL,y*CELL,CELL-1);
+  function gameLoop(timestamp) {
+    if(running && timestamp - lastTime > 100) {
+      step();
+      lastTime = timestamp;
+    }
+    draw();
+    window.requestAnimationFrame(gameLoop);
+  }
+
+  function handlePointer(e) {
+    var rect = canvas.getBoundingClientRect();
+    var clientX = e.touches? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches? e.touches[0].clientY : e.clientY;
+    var x = Math.floor((clientX - rect.left) / (rect.width / cols));
+    var y = Math.floor((clientY - rect.top) / (rect.height / rows));
+    if(x>=0 && x<cols && y>=0 && y<rows) {
+      grid[y][x] = 1 - grid[y][x];
+      draw();
     }
   }
-  updateStats();
-}
 
-function loop(){
-  if(running) step();
-  draw();
-  requestAnimationFrame(loop);
-}
+  // Event Listener statt onclick - iOS 26 Pflicht
+  document.getElementById('btnPlay').addEventListener('click', function() {
+    running =!running;
+    this.textContent = running? 'Pause' : 'Start';
+  });
 
-// UI Events - touch + click für Safari
-const btn = id => document.getElementById(id);
-btn('play').ontouchstart = btn('play').onclick = () => {
-  running =!running;
-  btn('play').textContent = running?'Pause':'Start';
-};
-btn('step').ontouchstart = btn('step').onclick = () => { running=false; step(); draw(); };
-btn('clear').ontouchstart = btn('clear').onclick = () => { running=false; resetGrid(); draw(); };
-btn('random').ontouchstart = btn('random').onclick = () => {
-  resetGrid(); g = g.map(r=>r.map(()=>Math.random()<0.25?1:0)); draw();
-};
-btn('pandemic').ontouchstart = btn('pandemic').onclick = pandemic;
-btn('presets').onchange = e => { if(e.target.value) placePreset(e.target.value); };
+  document.getElementById('btnStep').addEventListener('click', function() {
+    running = false;
+    document.getElementById('btnPlay').textContent = 'Start';
+    step(); draw();
+  });
 
-// Touch-Zeichnen für Handy Safari
-let drawing = false;
-function getPos(e) {
-  const rect = c.getBoundingClientRect();
-  const touch = e.touches? e.touches[0] : e;
-  return {
-    x: Math.floor((touch.clientX - rect.left) / CELL),
-    y: Math.floor((touch.clientY - rect.top) / CELL)
-  };
-}
-function paint(e) {
-  e.preventDefault();
-  const {x,y} = getPos(e);
-  if(g[y]?.[x]!==undefined){ g[y][x]=1; draw(); }
-}
-c.addEventListener('touchstart', e => { drawing=true; paint(e); }, {passive:false});
-c.addEventListener('touchmove', e => { if(drawing) paint(e); }, {passive:false});
-c.addEventListener('touchend', () => drawing=false);
-c.addEventListener('mousedown', e => { drawing=true; paint(e); });
-c.addEventListener('mousemove', e => { if(drawing) paint(e); });
-c.addEventListener('mouseup', () => drawing=false);
+  document.getElementById('btnClear').addEventListener('click', function() {
+    running = false;
+    document.getElementById('btnPlay').textContent = 'Start';
+    initGrid(); draw();
+  });
 
-resize(); loop();
+  document.getElementById('btnRandom').addEventListener('click', function() {
+    initGrid();
+    for(var y=0; y<rows; y++) {
+      for(var x=0; x<cols; x++) {
+        if(Math.random() < 0.25) grid[y][x] = 1;
+      }
+    }
+    draw();
+  });
+
+  document.getElementById('btnPandemic').addEventListener('click', function() {
+    for(var y=0; y<rows; y++) {
+      for(var x=0; x<cols; x++) {
+        if(grid[y][x]===1 && Math.random() < 0.35) grid[y][x] = 0;
+      }
+    }
+    draw();
+  });
+
+  document.getElementById('btnGlider').addEventListener('click', function() {
+    initGrid();
+    var pattern = [[1,0],[2,1],[0,2],[1,2],[2,2]];
+    var ox = 18, oy = 18;
+    for(var i=0; i<pattern.length; i++) {
+      grid[oy+pattern[i][1]][ox+pattern[i][0]] = 1;
+    }
+    draw();
+  });
+
+  document.getElementById('btnGun').addEventListener('click', function() {
+    initGrid();
+    var p = [[1,5],[1,6],[2,5],[2,6],[11,5],[11,6],[11,7],[12,4],[12,8],[13,3],[13,9],[14,3],[14,9],[15,6],[16,4],[16,8],[17,5],[17,6],[17,7],[18,6],[21,3],[21,4],[21,5],[22,3],[22,4],[22,5],[23,2],[23,6],[25,1],[25,2],[25,6],[25,7],[35,3],[35,4],[36,3],[36,4]];
+    for(var i=0; i<p.length; i++) {
+      if(p[i][1]<rows && p[i][0]<cols) grid[p[i][1]][p[i][0]] = 1;
+    }
+    draw();
+  });
+
+  canvas.addEventListener('touchstart', function(e) { e.preventDefault(); handlePointer(e); }, {passive: false});
+  canvas.addEventListener('mousedown', handlePointer);
+
+  initGrid();
+  window.requestAnimationFrame(gameLoop);
+})();
 </script>
 </body>
 </html>
