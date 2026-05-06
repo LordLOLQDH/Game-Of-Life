@@ -1,12 +1,23 @@
 <!DOCTYPE html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-  body { background:#111; color:#0f8; font-family:monospace; margin:0; text-align:center; }
-  canvas { border:1px solid #0f8; margin-top:10px; }
-  button,select { background:#222; color:#0f8; border:1px solid #0f8; margin:4px; padding:6px 10px; }
-  button:hover { background:#0f8; color:#111; cursor:pointer; }
-  #ui { margin:10px; }
+  body {
+    background:#111; color:#0f8; font-family:-apple-system,monospace;
+    margin:0; text-align:center; touch-action:none; overscroll-behavior:none;
+  }
+  canvas {
+    border:1px solid #0f8; margin-top:5px;
+    width:98vw; height:60vh; image-rendering:pixelated;
+  }
+  button,select {
+    background:#222; color:#0f8; border:1px solid #0f8;
+    margin:3px; padding:8px 12px; font-size:16px; border-radius:6px;
+  }
+  button:active { background:#0f8; color:#111; }
+  #ui { margin:8px; display:flex; flex-wrap:wrap; justify-content:center; gap:4px; }
+  #stats { width:100%; margin-top:4px; font-size:14px; }
 </style>
 </head>
 <body>
@@ -14,58 +25,57 @@
   <button id="play">Start</button>
   <button id="step">Step</button>
   <button id="clear">Clear</button>
-  <button id="random">Random 20%</button>
+  <button id="random">Random</button>
   <button id="pandemic">Pandemie 💀</button>
   <select id="presets">
-    <option value="">-- Struktur laden --</option>
+    <option value="">Struktur...</option>
     <option value="glider">Glider</option>
-    <option value="gun">Gosper Glider Gun</option>
+    <option value="gun">Glider Gun</option>
     <option value="pulsar">Pulsar</option>
     <option value="r">R-Pentomino</option>
-    <option value="lwss">Lightweight Spaceship</option>
+    <option value="lwss">Spaceship</option>
   </select>
-  <span id="stats">Gen: 0 | Lebend: 0</span>
+  <div id="stats">Gen: 0 | Lebend: 0</div>
 </div>
-<canvas id="c" width="1200" height="700"></canvas>
+<canvas id="c"></canvas>
 
 <script>
 const c = document.getElementById('c'), ctx = c.getContext('2d');
-let CELL = 8; // Start-Größe, wird bei großen Strukturen kleiner
-let cols = Math.floor(c.width/CELL), rows = Math.floor(c.height/CELL);
-let g = Array(rows).fill().map(()=>Array(cols).fill(0));
-let running = false, gen = 0;
+let CELL = 6, cols, rows, g, running = false, gen = 0;
 
-// Presets als Koordinaten-Listen. 1 = lebend
+// Canvas an Bildschirm anpassen - wichtig für Safari
+function resize() {
+  const ratio = window.devicePixelRatio || 1;
+  c.width = c.clientWidth * ratio;
+  c.height = c.clientHeight * ratio;
+  ctx.scale(ratio, ratio);
+  CELL = c.clientWidth < 500? 5 : 8; // Handy = kleinere Zellen
+  cols = Math.floor(c.clientWidth/CELL);
+  rows = Math.floor(c.clientHeight/CELL);
+  resetGrid(false);
+}
+window.addEventListener('resize', resize);
+
 const PRESETS = {
   glider: [[1,0],[2,1],[0,2],[1,2],[2,2]],
   lwss: [[1,0],[4,0],[0,1],[0,2],[4,2],[0,3],[1,3],[2,3],[3,3]],
-  r: [[1,0],[2,0],[0,1],[1,1],[1,2]],
-  pulsar: [
-    [2,0],[3,0],[4,0],[8,0],[9,0],[10,0],
-    [0,2],[5,2],[7,2],[12,2],[0,3],[5,3],[7,3],[12,3],[0,4],[5,4],[7,4],[12,4],
-    [2,5],[3,5],[4,5],[8,5],[9,5],[10,5],[2,7],[3,7],[4,7],[8,7],[9,7],[10,7],
-    [0,8],[5,8],[7,8],[12,8],[0,9],[5,9],[7,9],[12,9],[0,10],[5,10],[7,10],[12,10],
-    [2,12],[3,12],[4,12],[8,12],[9,12],[10,12]
-  ],
-  gun: [
-    [1,5],[1,6],[2,5],[2,6],[11,5],[11,6],[11,7],[12,4],[12,8],[13,3],[13,9],[14,3],[14,9],[15,6],[16,4],[16,8],[17,5],[17,6],[17,7],[18,6],
-    [21,3],[21,4],[21,5],[22,3],[22,4],[22,5],[23,2],[23,6],[25,1],[25,2],[25,6],[25,7],
-    [35,3],[35,4],[36,3],[36,4]
-  ]
+  r: [[1,0],[2,0],[0,1],[1,2]],
+  pulsar: [[2,0],[3,0],[4,0],[8,0],[9,0],[10,0],[0,2],[5,2],[7,2],[12,2],[0,3],[5,3],[7,3],[12,3],[0,4],[5,4],[7,4],[12,4],[2,5],[3,5],[4,5],[8,5],[9,5],[10,5],[2,7],[3,7],[4,7],[8,7],[9,7],[10,7],[0,8],[5,8],[7,8],[12,8],[0,9],[5,9],[7,9],[12,9],[0,10],[5,10],[7,10],[12,10],[2,12],[3,12],[4,12],[8,12],[9,12],[10,12]],
+  gun: [[1,5],[1,6],[2,5],[2,6],[11,5],[11,6],[11,7],[12,4],[12,8],[13,3],[13,9],[14,3],[14,9],[15,6],[16,4],[16,8],[17,5],[17,6],[17,7],[18,6],[21,3],[21,4],[21,5],[22,3],[22,4],[22,5],[23,2],[23,6],[25,1],[25,2],[25,6],[25,7],[35,3],[35,4],[36,3],[36,4]]
 };
 
-function resetGrid() {
-  cols = Math.floor(c.width/CELL); rows = Math.floor(c.height/CELL);
+function resetGrid(clearGen = true) {
   g = Array(rows).fill().map(()=>Array(cols).fill(0));
-  gen = 0; updateStats();
+  if(clearGen) gen = 0;
+  updateStats();
 }
 
 function placePreset(name) {
-  resetGrid();
   const p = PRESETS[name]; if(!p) return;
-  // Auto-Zoom: Wenn Struktur breit ist, CELL kleiner machen
   const maxX = Math.max(...p.map(pt=>pt[0])), maxY = Math.max(...p.map(pt=>pt[1]));
-  if(maxX > 40 || maxY > 30) CELL = 4; else CELL = 8;
+  // Auto-Zoom für große Strukturen + Handy
+  if(maxX > cols-10 || maxY > rows-10) CELL = Math.max(3, Math.floor(c.clientWidth/Math.max(maxX,maxY)/1.5));
+  cols = Math.floor(c.clientWidth/CELL); rows = Math.floor(c.clientHeight/CELL);
   resetGrid();
 
   const ox = Math.floor(cols/2 - maxX/2), oy = Math.floor(rows/2 - maxY/2);
@@ -91,8 +101,7 @@ function step(){
 }
 
 function pandemic() {
-  // Killt 30% der lebenden Zellen zufällig
-  g = g.map(r=>r.map(v=> v && Math.random()<0.3? 0 : v));
+  g = g.map(r=>r.map(v=> v && Math.random()<0.35? 0 : v));
   updateStats(); draw();
 }
 
@@ -105,11 +114,11 @@ function updateStats() {
 }
 
 function draw(){
-  ctx.fillStyle='#111'; ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle='#111'; ctx.fillRect(0,0,c.clientWidth,c.clientHeight);
   ctx.fillStyle='#0f8';
   for(let y=0;y<rows;y++){
     for(let x=0;x<cols;x++){
-      if(g[y][x]) ctx.fillRect(x*CELL,y*CELL,CELL-1,CELL-1);
+      if(g[y][x]) ctx.fillRect(x*CELL,y*CELL,CELL-1);
     }
   }
   updateStats();
@@ -121,32 +130,43 @@ function loop(){
   requestAnimationFrame(loop);
 }
 
-// UI Events
-document.getElementById('play').onclick = () => {
+// UI Events - touch + click für Safari
+const btn = id => document.getElementById(id);
+btn('play').ontouchstart = btn('play').onclick = () => {
   running =!running;
-  document.getElementById('play').textContent = running?'Pause':'Start';
+  btn('play').textContent = running?'Pause':'Start';
 };
-document.getElementById('step').onclick = () => { running=false; step(); draw(); };
-document.getElementById('clear').onclick = () => { running=false; resetGrid(); draw(); };
-document.getElementById('random').onclick = () => {
-  resetGrid();
-  g = g.map(r=>r.map(()=>Math.random()<0.2?1:0));
-  draw();
+btn('step').ontouchstart = btn('step').onclick = () => { running=false; step(); draw(); };
+btn('clear').ontouchstart = btn('clear').onclick = () => { running=false; resetGrid(); draw(); };
+btn('random').ontouchstart = btn('random').onclick = () => {
+  resetGrid(); g = g.map(r=>r.map(()=>Math.random()<0.25?1:0)); draw();
 };
-document.getElementById('pandemic').onclick = pandemic;
-document.getElementById('presets').onchange = e => { if(e.target.value) placePreset(e.target.value); };
+btn('pandemic').ontouchstart = btn('pandemic').onclick = pandemic;
+btn('presets').onchange = e => { if(e.target.value) placePreset(e.target.value); };
 
-// Maus zum Malen
+// Touch-Zeichnen für Handy Safari
 let drawing = false;
-c.onmousedown = e => { drawing=true; paint(e); };
-c.onmouseup = () => drawing=false;
-c.onmousemove = e => { if(drawing) paint(e); };
-function paint(e){
-  const x=Math.floor(e.offsetX/CELL), y=Math.floor(e.offsetY/CELL);
+function getPos(e) {
+  const rect = c.getBoundingClientRect();
+  const touch = e.touches? e.touches[0] : e;
+  return {
+    x: Math.floor((touch.clientX - rect.left) / CELL),
+    y: Math.floor((touch.clientY - rect.top) / CELL)
+  };
+}
+function paint(e) {
+  e.preventDefault();
+  const {x,y} = getPos(e);
   if(g[y]?.[x]!==undefined){ g[y][x]=1; draw(); }
 }
+c.addEventListener('touchstart', e => { drawing=true; paint(e); }, {passive:false});
+c.addEventListener('touchmove', e => { if(drawing) paint(e); }, {passive:false});
+c.addEventListener('touchend', () => drawing=false);
+c.addEventListener('mousedown', e => { drawing=true; paint(e); });
+c.addEventListener('mousemove', e => { if(drawing) paint(e); });
+c.addEventListener('mouseup', () => drawing=false);
 
-resetGrid(); loop();
+resize(); loop();
 </script>
 </body>
 </html>
